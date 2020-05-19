@@ -1,3 +1,11 @@
+# Ignore potentially sensitive data
+raw_data/
+
+# Ignore R project related material
+.Rproj.user/
+.Rprofile
+*.Rproj
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
