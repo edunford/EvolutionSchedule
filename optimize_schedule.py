@@ -14,26 +14,25 @@ dat = pd.read_csv("output_data/bsb_bldg_mw_example.csv")
 
 
 # Alg.
-self = ScheduleEvolution(reference_schedule=dat)
-self.generate_population(mutation_bounds = 150, N_population=500)
-self.evolve(n_epochs = 50,fix_pop_size = 500,cross_breed_top_n = 100,
-            breeding_prob =.1, n_room_swap = 4,n_siblings = 1,
-            mutation_bounds = 10,time_buffer = 15,overlap_penalty=50,
-            stop_threhold=.05, verbose=True)
 
+pop_size = 300
+prec = .15
 
-
+self = ScheduleEvolution(reference_schedule=dat,start_time = 480, end_time = 1260, schedule_buffer = 15)
+self.generate_population(mutation_bounds = 150, N_population=pop_size)
+self.evolve(n_epochs = 100,fix_pop_size = pop_size,cross_breed_top_n = int(pop_size*prec),
+            n_mates = 50, n_room_swap = 4,
+            mutation_bounds = 10,time_buffer = 30,
+            overlap_penalty=50,time_between_classes = 20,
+            stop_threhold=.01, stop_calls_threshold=5, verbose=True)
+self.is_viable(distance_from_end=15) # Check that the optimized schedule is usable.
 
 
 
 # %% ---------------------------------------------
 
-
+self.export_epoch_state("output_data/opt_sched_2.csv")
 self.plot_performance()
-
-
-self.grab_epoch_state().to_csv("output_data/opt_sched_2.csv",index=False)
-
 
 
 
