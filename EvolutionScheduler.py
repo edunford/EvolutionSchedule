@@ -33,7 +33,7 @@ class ScheduleEvolution:
 
         """
         self.raw_data = reference_schedule # Retain the raw reference data
-        self.reference_schedule = self.raw_data.reset_index()[['index','room','max_enrl','start_time','end_time']].values
+        self.reference_schedule = self.raw_data.reset_index()[['index','room','max_enrl','start_time','end_time','fixed']].values
         self.population = None
         self.epoch_performance = [] # Performance across epochs
         self.epoch_states = {} # save states across epochs to get a sense of performance improvements
@@ -43,7 +43,7 @@ class ScheduleEvolution:
         # or the start of the day
         self.max_time = end_time + schedule_buffer
         self.min_time = start_time - schedule_buffer
-        self.n_classes = self.reference_schedule.shape[0]
+        self.n_classes = self.reference_schedule.shape[0] - self.reference_schedule[:,5].sum() # relavant to mutations, so ignore classes that must remain fixed (due to having already been optimized within another schedule)
         self.all_rooms = np.unique(self.reference_schedule[:,1])
         self.time_periods = np.arange(self.min_time,self.max_time,10)
 
@@ -64,13 +64,13 @@ class ScheduleEvolution:
             list: containing numpy arrays of the mutated versions of the data sets.
 
         """
-
         # Generate generic mutations of the starter schedule.
         population = []
         for i in range(N_population):
             mutations = self.random_mutation(mutation_bounds=mutation_bounds,n=self.n_classes)
             new_sched = self.reference_schedule.copy()
-            new_sched[:,3:] = new_sched[:,3:] + mutations.reshape(new_sched.shape[0],1)
+            not_fixed = new_sched[:,5] == 0 # All schedules that aren't fixed and can be mutated.
+            new_sched[not_fixed,3:5] = new_sched[not_fixed,3:5] + mutations.reshape(self.n_classes,1)
 
             # check new schedule falls within the current bounds of the day (for that building)
             # if over, nudge back into interval + a little noise
@@ -78,14 +78,14 @@ class ScheduleEvolution:
             if any(over_time):
                 time_over = new_sched[over_time,4] - self.max_time
                 noise = self.random_mutation(mutation_bounds=mutation_bounds,n=len(time_over))
-                new_sched[over_time,3:] = new_sched[over_time,3:] - (time_over+noise).reshape(len(time_over),1)
+                new_sched[over_time,3:5] = new_sched[over_time,3:5] - (time_over+noise).reshape(len(time_over),1)
 
             # if under, nudge back into interval + a little noise
             under_time = new_sched[:,3] < self.min_time
             if any(under_time):
                 time_under = self.min_time - new_sched[under_time,3]
                 noise = self.random_mutation(mutation_bounds=mutation_bounds,n=len(time_under))
-                new_sched[under_time,3:] = new_sched[under_time,3:] + (time_under+noise).reshape(len(time_under),1)
+                new_sched[under_time,3:5] = new_sched[under_time,3:5] + (time_under+noise).reshape(len(time_under),1)
 
             # Add new schedule to the population
             population.append([new_sched,0])
@@ -105,12 +105,10 @@ class ScheduleEvolution:
             list: containing numpy arrays of the mutated versions of the data sets.
 
         """
-
-
-
         mutations = self.random_mutation(mutation_bounds=mutation_bounds,n=self.n_classes)
         new_sched = schedule.copy()
-        new_sched[:,3:] = new_sched[:,3:] + mutations.reshape(new_sched.shape[0],1)
+        not_fixed = new_sched[:,5] == 0 # All schedules that aren't fixed and can be mutated.
+        new_sched[not_fixed,3:5] = new_sched[not_fixed,3:5] + mutations.reshape(self.n_classes,1)
 
         # check new schedule falls within the current bounds of the day (for that building)
         # if over, nudge back into interval + a little noise
@@ -118,14 +116,14 @@ class ScheduleEvolution:
         if any(over_time):
             time_over = new_sched[over_time,4] - self.max_time
             noise = self.random_mutation(mutation_bounds=mutation_bounds,n=len(time_over))
-            new_sched[over_time,3:] = new_sched[over_time,3:] - (time_over+noise).reshape(len(time_over),1)
+            new_sched[over_time,3:5] = new_sched[over_time,3:5] - (time_over+noise).reshape(len(time_over),1)
 
         # if under, nudge back into interval + a little noise
         under_time = new_sched[:,3] < self.min_time
         if any(under_time):
             time_under = self.min_time - new_sched[under_time,3]
             noise = self.random_mutation(mutation_bounds=mutation_bounds,n=len(time_under))
-            new_sched[under_time,3:] = new_sched[under_time,3:] + (time_under+noise).reshape(len(time_under),1)
+            new_sched[under_time,3:5] = new_sched[under_time,3:5] + (time_under+noise).reshape(len(time_under),1)
 
         # Return new schedule
         return [new_sched,0]
@@ -458,19 +456,19 @@ class ScheduleEvolution:
         """Return the current state of the schedule."""
         if state_ind is None:
             return pd.DataFrame(self.epoch_states[len(self.epoch_states)-1],
-                                columns = ["index","room","max_enrl","start_time",'end_time'])
+                                columns = ["index","room","max_enrl","start_time",'end_time','fixed'])
         else:
             return pd.DataFrame(self.epoch_states[state_ind],
-                                columns = ["index","room","max_enrl","start_time",'end_time'])
+                                columns = ["index","room","max_enrl","start_time",'end_time','fixed'])
 
     def export_epoch_state(self,path="",state_ind=None):
         """Return the current state of the schedule."""
         if state_ind is None:
             pd.DataFrame(self.epoch_states[len(self.epoch_states)-1],
-                         columns = ["index","room","max_enrl","start_time",'end_time']).to_csv(path,index=False)
+                         columns = ["index","room","max_enrl","start_time",'end_time','fixed']).to_csv(path,index=False)
         else:
             return pd.DataFrame(self.epoch_states[state_ind],
-                                columns = ["index","room","max_enrl","start_time",'end_time']).to_csv(path,index=False)
+                                columns = ["index","room","max_enrl","start_time",'end_time','fixed']).to_csv(path,index=False)
 
     def plot_performance(self,figsize=(10,5)):
         """Return the current state of the schedule."""
