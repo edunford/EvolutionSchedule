@@ -12,15 +12,14 @@ import numpy as np
 # Buisness school MW example
 dat = pd.read_csv("output_data/bsb_bldg_mw_example.csv")
 
-dat
 
-# Test
-# starter_sched = dat.reset_index()[['index','room','start_time','end_time']].values
+# Alg.
 self = ScheduleEvolution(reference_schedule=dat)
-self.generate_population(mutation_bounds = 150, N_population=250)
-self.evolve(n_epochs = 500,fix_pop_size = 50, cross_breed_top_n = 15, n_room_swap = 4,
-            n_siblings = 1, mutation_bounds = 10,time_between_classes = 15,
-            open_penalty=50,verbose=True)
+self.generate_population(mutation_bounds = 150, N_population=500)
+self.evolve(n_epochs = 50,fix_pop_size = 500,cross_breed_top_n = 100,
+            breeding_prob =.1, n_room_swap = 4,n_siblings = 1,
+            mutation_bounds = 10,time_buffer = 15,overlap_penalty=50,
+            stop_threhold=.05, verbose=True)
 
 
 
@@ -32,8 +31,8 @@ self.evolve(n_epochs = 500,fix_pop_size = 50, cross_breed_top_n = 15, n_room_swa
 
 self.plot_performance()
 
-pd.DataFrame(self.epoch_performance,columns=["epoch","fitness"]).plot(x="epoch",y="fitness",figsize=(15,10))
-self.grab_epoch_state().to_csv("output_data/opt_sched.csv",index=False)
+
+self.grab_epoch_state().to_csv("output_data/opt_sched_2.csv",index=False)
 
 
 
