@@ -5,6 +5,8 @@ raw_data/
 .Rproj.user/
 .Rprofile
 *.Rproj
+/output_data
+/Figures
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
