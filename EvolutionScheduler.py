@@ -90,6 +90,9 @@ class ScheduleEvolution:
             # Add new schedule to the population
             population.append([new_sched,0])
 
+        # Add the original schedule to the mix
+        # population.append([self.reference_schedule,0])
+
         # Write or overwrite existing population
         self.population = population
 
@@ -194,14 +197,15 @@ class ScheduleEvolution:
 
         # Iterate over all sample time periods and calculate the congestion score.
         fitness = 0
-        for time in self.time_periods:
+        for t in self.time_periods:
 
             # Generate a copy of the inputed schedule
-            S1 = schedule.copy().astype(float)
+            S1 = schedule.copy()
+            S1[:,3:5] = S1[:,3:5].astype(float)
 
             # Temporal window of the class to examine
-            low_range = (time - time_buffer)
-            high_range = (time + time_buffer)
+            low_range = (t - time_buffer)
+            high_range = (t + time_buffer)
 
             # What is the average number of students out in the time window.
             S1[:,3] = S1[:,3] - low_range # See all classes that are about to start within the buffer range
@@ -284,10 +288,12 @@ class ScheduleEvolution:
         top_performers = metrics[:cross_breed_top_n,:]
 
         # Generate all mating options only randomly select some pairs.
-        # Always breed the top 2 performers, randomly select the rest
-        mate_pairs = [i for i in itertools.combinations(top_performers[:,0],2)]
+        # Always breed the top 3 performers, randomly select the rest
+        mate_pairs_selected = [(0,1),(1,2),(2,3),(0,2),(0,3),(1,3)]
+        mate_pairs = [i for i in itertools.combinations(top_performers[:,0],2) if i not in mate_pairs_selected]
+        if n_mates > len(mate_pairs):
+            n_mates = len(mate_pairs)
         select_ind = np.random.choice([i for i in range(1,len(mate_pairs))],n_mates,replace=False).tolist()
-        mate_pairs_selected = [mate_pairs[0]]
         mate_pairs_selected.extend([mate_pairs[i] for i in select_ind])
 
         # Crossbreed the the selected mates
