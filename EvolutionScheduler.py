@@ -5,6 +5,7 @@ Evolutionary algorithm to optimized class schedules to reduce congestion.
 import itertools
 import pandas as pd
 import numpy as np
+import sys
 
 class ScheduleEvolution:
     '''
@@ -72,26 +73,27 @@ class ScheduleEvolution:
             not_fixed = new_sched[:,5] == 0 # All schedules that aren't fixed and can be mutated.
             new_sched[not_fixed,3:5] = new_sched[not_fixed,3:5] + mutations.reshape(self.n_classes,1)
 
+            nudge_mutation_bounds = 30 # This should be small and fixed
+
             # check new schedule falls within the current bounds of the day (for that building)
             # if over, nudge back into interval + a little noise
             over_time = new_sched[:,4] > self.max_time
             if any(over_time):
-                time_over = new_sched[over_time,4] - self.max_time
+                time_over = self.max_time - new_sched[over_time,4]
                 noise = self.random_mutation(mutation_bounds=mutation_bounds,n=len(time_over))
-                new_sched[over_time,3:5] = new_sched[over_time,3:5] - (time_over+noise).reshape(len(time_over),1)
+                noise = -np.abs(noise) # All strictly negative
+                new_sched[over_time,3:5] = new_sched[over_time,3:5] + (time_over+noise).reshape(len(time_over),1)
 
             # if under, nudge back into interval + a little noise
             under_time = new_sched[:,3] < self.min_time
             if any(under_time):
-                time_under = self.min_time - new_sched[under_time,3]
+                time_under = new_sched[under_time,3] - self.min_time
                 noise = self.random_mutation(mutation_bounds=mutation_bounds,n=len(time_under))
-                new_sched[under_time,3:5] = new_sched[under_time,3:5] + (time_under+noise).reshape(len(time_under),1)
+                noise = np.abs(noise) # All strictly positive
+                new_sched[under_time,3:5] = new_sched[under_time,3:5] - (time_under+noise).reshape(len(time_under),1)
 
             # Add new schedule to the population
             population.append([new_sched,0])
-
-        # Add the original schedule to the mix
-        # population.append([self.reference_schedule,0])
 
         # Write or overwrite existing population
         self.population = population
@@ -113,119 +115,73 @@ class ScheduleEvolution:
         not_fixed = new_sched[:,5] == 0 # All schedules that aren't fixed and can be mutated.
         new_sched[not_fixed,3:5] = new_sched[not_fixed,3:5] + mutations.reshape(self.n_classes,1)
 
+        nudge_mutation_bounds = 30 # This should be small and fixed
+
         # check new schedule falls within the current bounds of the day (for that building)
         # if over, nudge back into interval + a little noise
         over_time = new_sched[:,4] > self.max_time
         if any(over_time):
-            time_over = new_sched[over_time,4] - self.max_time
+            time_over = self.max_time - new_sched[over_time,4]
             noise = self.random_mutation(mutation_bounds=mutation_bounds,n=len(time_over))
-            new_sched[over_time,3:5] = new_sched[over_time,3:5] - (time_over+noise).reshape(len(time_over),1)
+            noise = -np.abs(noise) # All strictly negative
+            new_sched[over_time,3:5] = new_sched[over_time,3:5] + (time_over+noise).reshape(len(time_over),1)
 
         # if under, nudge back into interval + a little noise
         under_time = new_sched[:,3] < self.min_time
         if any(under_time):
-            time_under = self.min_time - new_sched[under_time,3]
+            time_under = new_sched[under_time,3] - self.min_time
             noise = self.random_mutation(mutation_bounds=mutation_bounds,n=len(time_under))
-            new_sched[under_time,3:5] = new_sched[under_time,3:5] + (time_under+noise).reshape(len(time_under),1)
+            noise = np.abs(noise) # All strictly positive
+            new_sched[under_time,3:5] = new_sched[under_time,3:5] - (time_under+noise).reshape(len(time_under),1)
 
         # Return new schedule
         return [new_sched,0]
 
 
-    def within_room(self,schedule,overlap_penalty = 50,time_between_classes=15):
-        """Short summary.
+    def score_fitness(self,schedule=None,
+                      time_buffer = 10,time_between_classes = 10,
+                      overlap_penalty = 100):
 
-        Args:
-            schedule (type): Description of parameter `schedule`.
-            overlap_penalty (type): Description of parameter `overlap_penalty`. Defaults to 50.
+        def overlap_score(start_time_1=None,end_time_1=None,
+                          start_time_2=None,end_time_2=None,
+                          buffer = 0):
+            '''
+            '''
+            total_time = (end_time_2 - start_time_1)
+            time_between = (end_time_1 + buffer - start_time_2)
+            time_a = end_time_1 + buffer - start_time_1
+            time_b = end_time_2 - start_time_2
+            score = (total_time - time_between)/ (time_a + time_b)
+            return np.abs(score)
 
-        Returns:
-            type: Description of returned object.
-
-        """
-
-        # Generate a copy of the inputed building schedule
-        S1 = schedule.copy()
-
-        # Order Schedule
-        S1 = S1[np.lexsort((S1[:,3],S1[:,1]))]
-
-        # Compare entering classes to exiting classes
-        S2 = np.roll(S1,-1,axis=0)
-
-        # Drop the rolled value and adjust
-        S1 = S1[:-1,:]
-        S2 = S2[:-1,:]
-
-        # Only compare classes that are in the same room
-        rel_ind = np.where(S1[:,1] == S2[:,1])
-
-        # Time between classes -- negative == overlap, positive == time out.
-        T = S2[rel_ind,3] - S1[rel_ind,4] - time_between_classes
-        T[T==0] = -1 # offset instances when a class starts as one ends
-
-        # calculate the student congestion rate (SCR) -- which is the average number of students
-        # in the hall for a specific period of time.
-        enter_stu = S2[rel_ind,2]
-        exit_stu = S1[rel_ind,2]
-        scr = (exit_stu + enter_stu)/T
-
-        # If negative means there is class overlap, penalize these occurences.
-        scr[scr<0] = T[T<0]*overlap_penalty
-
-        # Convert all positive instances (SCR) to negative. Aim is to select a schedule where the SCR is
-        # is low as possible.
-        scr[scr>0] = np.negative(scr[scr>0])
-
-        # Compute the fitness.
-        fitness = scr.sum()
-
-        return fitness
-
-
-    def between_rooms(self,schedule,time_buffer = 10):
-        """Short summary.
-
-        Args:
-            schedule (type): Description of parameter `schedule`.
-            time_buffer (type): Description of parameter `time_buffer`. Defaults to 10.
-
-        Returns:
-            type: Description of returned object.
-
-        """
-
-        # Iterate over all sample time periods and calculate the congestion score.
         fitness = 0
+        S = schedule
         for t in self.time_periods:
+            in_session = (( t >= (S[:,3] - time_between_classes) ) & (t <= (S[:,4] + time_between_classes) ))
+            coming_up = (( (t - time_buffer) >= S[:,3]) & ( (t - time_buffer) <= S[:,4])) | (( (t + time_buffer) >= S[:,3]) & ( (t + time_buffer) <= S[:,4]))
 
-            # Generate a copy of the inputed schedule
-            S1 = schedule.copy()
-            S1[:,3:5] = S1[:,3:5].astype(float)
+            # Within room overlap (penalize more the greater the overlap)
+            O = [(overlap_score(start_time_1=a[3],end_time_1 = a[4],
+                                start_time_2 = b[3],end_time_2 = b[4],
+                                buffer = time_between_classes))
+                 for a in S[in_session,:]
+                 for b in S[in_session,:]
+                 if (a[0] != b[0]) and (a[1] == b[1])]
+            w = - sum([overlap_penalty/.001 if i == 0 else overlap_penalty/i for i in O if i < 1])
 
-            # Temporal window of the class to examine
-            low_range = (t - time_buffer)
-            high_range = (t + time_buffer)
 
-            # What is the average number of students out in the time window.
-            S1[:,3] = S1[:,3] - low_range # See all classes that are about to start within the buffer range
-            S1[:,4] = high_range - S1[:,4] # See all classes that just ended in the buffer range
+            # Between room congestion
+            b = - S[coming_up & ~in_session,2].sum()/(time_buffer*2)
 
-            # Only retain those classes that are within the buffer range
-            S1 = S1[ (S1[:,3] > 0) & (S1[:,3] <= time_buffer) | (S1[:,4] > 0) & (S1[:,4] <= time_buffer)]
-
-            # calculate the average number of students in the hall for each room.
-            S1[S1[:,3] > 0,2] = S1[S1[:,3] > 0,2]/S1[S1[:,3] > 0,3]
-            S1[S1[:,4] > 0,2] = S1[S1[:,4] > 0,2]/S1[S1[:,4] > 0,4]
-
-            # Take the total average number students in the hall as a fitness score.
-            if S1.shape[0] > 0:
-                fitness -= S1[:,2].sum()
+            fitness += w + b
 
         return fitness
 
 
-    def calc_fitness(self,time_buffer = 10,overlap_penalty=50,time_between_classes=15):
+    def calc_fitness(self,
+                     overlap_penalty=50,
+                     time_between_classes=15,
+                     time_buffer = 10):
         """Short summary.
 
         Args:
@@ -237,10 +193,8 @@ class ScheduleEvolution:
 
         """
 
-        # Record the fitness metrics for the current generation
         fitness_metric = []
 
-        # Iterate through all schedule versions in the population
         for version, schedule in  enumerate(self.population):
 
             # Track if current schedule has already been assessed.
@@ -248,22 +202,18 @@ class ScheduleEvolution:
             checked = schedule[1]
 
             if checked == 0:
-
-                # Fitness
-                fitness1 = self.within_room(schedule=S,overlap_penalty=overlap_penalty,time_between_classes=time_between_classes)
-                fitness2 = self.between_rooms(schedule=S,time_buffer=time_buffer)
-                fitness_total = fitness1 + fitness2
-
+                fitness = self.score_fitness(schedule=S,
+                                             time_buffer = time_buffer,
+                                             overlap_penalty=overlap_penalty,
+                                             time_between_classes=time_between_classes)
                 # Append the fitness metrics for the specific version
-                fitness_metric.append([version,fitness_total])
+                fitness_metric.append([version,fitness])
                 schedule[1] = 1
-
             else:
                 fitness_metric.append(self.fitness_metric[version])
 
         # write/overwrite fitness metrics for the current generation.
         self.fitness_metric = np.array(fitness_metric)
-
 
 
     def crossbreed(self,cross_breed_top_n = 3,n_mates = 100,
@@ -330,7 +280,7 @@ class ScheduleEvolution:
                n_mates = 1, n_room_swap = 3,
                mutation_bounds = 10, time_buffer = 15,
                overlap_penalty = 5, time_between_classes = 10,
-               stop_threhold=.005,stop_calls_threshold=10,verbose=False):
+               stop_threshold=.005,stop_calls_threshold=10,verbose=False):
         """Main method for iterating over epochs generating a new population of performers.
 
         Args:
@@ -342,7 +292,7 @@ class ScheduleEvolution:
             mutation_bounds (int): The bounding range (in minute) for the mutations.
             time_between_classes (int): the set amount of time that needs to be specified between classes
             open_penalty (int): an added penalty for instances when there is no one in class (i.e. no overlapping class periods)
-            stop_threhold (float): minimium precent change allowed in improvement. Default is .005
+            stop_threshold (float): minimium precent change allowed in improvement. Default is .005
             verbose (bool): print out which epoch you're on.
 
         Returns:
@@ -393,32 +343,56 @@ class ScheduleEvolution:
             # Store performance of the best fitness
             self.epoch_performance.append([epoch,survivors[0,1]])
 
-
             # Store state of the best performer
             self.epoch_states.update({ epoch: self.population[0][0]})
 
             if verbose:
-                print(f'''epoch {epoch} - fitness: {survivors[0,1]}''')
+                if epoch == 0:
+                    max_state = survivors[0,1]
+                current = survivors[0,1]
+                prec = 1 - (current/max_state)
+                sys.stdout.write(f"\r\tepoch {epoch} - fitness: {round(prec*100,2)}%")
+                sys.stdout.flush()
+                # print(f'''epoch {epoch} - fitness: {survivors[0,1]}''')
 
-            # Check on the amount of change, if insufficient stop running
+            # Check on the amount of change, if insufficient, alter the change rate or stop running
             if epoch > 2:
                 last = np.abs(self.epoch_performance[-2][1]).astype(float)
                 current = np.abs(self.epoch_performance[-1][1]).astype(float)
                 delta = (last - current)/last
 
-                if delta <= stop_threhold:
+                if delta <= stop_threshold:
 
+                    mutation_bounds = np.abs(self.random_mutation(30,1))
+                    # prop_rooms_swap = np.random.uniform(.05,.5)
+                    # n_room_swap = round(self.n_classes*prop_rooms_swap)
                     n_stop_calls += 1
 
-                    # if more than 5 stop calls have been made, stop loop
+                    # if n_stop_calls > 50:
+                    #     mutation_bounds = np.abs(self.random_mutation(200,1))
+                    #     # prop_rooms_swap = np.random.uniform(.1,.5)
+                    #     # n_room_swap = round(self.n_classes*prop_rooms_swap)
+                    #     n_room_swap = 1
+
+
+                    # if more than N stop calls have been made, stop loop and start over again.
                     if n_stop_calls == stop_calls_threshold:
                         if verbose:
-                            print("Converged.")
+                            print("\n\tFailed to reach a valid conversion.")
                         break
 
-                elif n_stop_calls > 0:
+                else:
                     # Reset if alg escaped from a local minimum.
                     n_stop_calls = 0
+                    prop_rooms_swap = .1
+                    n_room_swap = round(self.n_classes*prop_rooms_swap)
+                    mutation_bounds = 5
+                    # n_mates = 10
+
+
+
+            if self.is_valid(time_between_classes=time_between_classes):
+                break
 
 
     def is_viable(self,distance_from_end=10):
@@ -456,6 +430,26 @@ class ScheduleEvolution:
             return True
         else:
             return False
+
+
+    def is_valid(self,time_between_classes = 10):
+
+        def overlap_score(start_time_1=None,end_time_1=None,
+                          start_time_2=None,end_time_2=None,
+                          buffer = 0):
+            '''
+            '''
+            total_time = (end_time_2 - start_time_1)
+            time_between = (end_time_1 + buffer - start_time_2)
+            time_a = end_time_1 + buffer - start_time_1
+            time_b = end_time_2 - start_time_2
+            score = (total_time - time_between)/ (time_a + time_b)
+            return np.abs(score)
+
+        # Grab optimized schedule
+        S = self.epoch_states[len(self.epoch_states)-1].copy()
+
+        return np.all([ (overlap_score(start_time_1=a[3],end_time_1 = a[4],start_time_2 = b[3],end_time_2 = b[4],buffer = time_between_classes) >= 1) for a in S for b in S if (a[0] != b[0]) and (a[1] == b[1])])
 
 
     def grab_epoch_state(self,state_ind=None):
